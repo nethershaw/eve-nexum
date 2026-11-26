@@ -1,7 +1,7 @@
 # Nexum desktop
 
-The Nexum website in its own window ([Tauri 2](https://tauri.app)), plus what a
-browser can't do:
+The Nexum website in its own window ([Tauri 3 alpha](https://tauri.app), using
+the Chromium Embedded Framework runtime), plus what a browser can't do:
 
 | Feature | What it does |
 |---|---|
@@ -42,7 +42,8 @@ unchanged without the desktop app.
 
 ## Develop
 
-Needs Rust (stable) and Node. On macOS:
+Needs Rust 1.95 or newer and Node. On Linux, install GTK 4 development
+libraries for the CEF runtime. On macOS:
 
 ```sh
 brew install rustup && rustup default stable
@@ -77,8 +78,7 @@ Recorded so we come back to them:
   XWayland (GDK_BACKEND=x11) so always-on-top and the global shortcut work;
   NEXUM_WAYLAND=1 keeps native Wayland. GTK overlay scrollbars are turned
   off (they covered the sidebar's switches). Known limits: no tray where the desktop has none (GNOME without an
-  extension), and no spoken intel where WebKitGTK has no speech (the
-  option is hidden then).
+  extension), and spoken intel depends on platform support.
 
 ## Build
 

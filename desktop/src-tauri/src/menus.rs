@@ -6,7 +6,7 @@
 #[cfg(target_os = "macos")]
 use tauri::menu::AboutMetadata;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, DynRuntime, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::settings::Settings;
@@ -24,7 +24,7 @@ fn pending_update(app: &AppHandle) -> Option<String> {
 const STORE_HIDDEN: &[&str] = &["check_updates", "start_at_login"];
 
 /// The menu bar.
-pub fn build_bar(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
+pub fn build_bar(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<DynRuntime>> {
     let version = app.package_info().version.to_string();
 
     let nexum = Submenu::with_items(app, "Nexum", true, &[
@@ -109,7 +109,7 @@ pub fn build_bar(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
 }
 
 /// The tray icon's menu: the everyday toggles, a way back to the window.
-pub fn build_tray(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<Wry>> {
+pub fn build_tray(app: &AppHandle, s: &Settings) -> tauri::Result<Menu<DynRuntime>> {
     let menu = Menu::with_items(app, &[
         &MenuItem::with_id(app, "show", tr("show"), true, None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,

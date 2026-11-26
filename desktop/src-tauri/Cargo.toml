@@ -9,25 +9,26 @@ name = "nexum_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=3.0.0-alpha.4", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-clipboard-manager = "2"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-opener = "2"
-tauri-plugin-single-instance = "2"
+tauri = { version = "=3.0.0-alpha.6", features = ["tray-icon"] }
+tauri-runtime-cef = "=3.0.0-alpha.7"
+tauri-plugin-clipboard-manager = "=3.0.0-alpha.3"
+tauri-plugin-global-shortcut = "=3.0.0-alpha.3"
+tauri-plugin-notification = "=3.0.0-alpha.3"
+tauri-plugin-opener = "=3.0.0-alpha.3"
+tauri-plugin-single-instance = "=3.0.0-alpha.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 dirs = "6"
 url = "2"
 sys-locale = "0.3"
-tauri-plugin-updater = "2"
+tauri-plugin-updater = "=3.0.0-alpha.3"
 tokio = { version = "1", features = ["time"] }
-tauri-plugin-autostart = "2"
-tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "=3.0.0-alpha.3"
+tauri-plugin-dialog = { version = "=3.0.0-alpha.4", default-features = false, features = ["xdg-portal"] }
 
 # Is EVE the window in front (foreground.rs): only a copy made in EVE is used.
 [target.'cfg(windows)'.dependencies]
@@ -35,9 +36,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xfixes"] }
-# The webview itself (the same version tauri's wry uses), to reload a page
-# whose web process crashed instead of leaving the window blank.
-webkit2gtk = "=2.0.2"
 
 [features]
 # Microsoft Store build: no self-updater, no registry "start at login".

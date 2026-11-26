@@ -138,36 +138,6 @@ fn safe_file_name(name: &str) -> String {
     if clean.is_empty() { "nexum-export".into() } else { clean }
 }
 
-// Linux: WebKitGTK runs the page in its own process. When that process dies
-// (out of memory, a graphics driver fault) the window just goes blank and
-// only a restart brought it back. Load the page again instead, at most a few
-// times a minute so a page that crashes on load doesn't spin.
-#[cfg(target_os = "linux")]
-fn reload_on_crash(w: &tauri::WebviewWindow) {
-    use std::cell::RefCell;
-    use std::time::{Duration, Instant};
-    use webkit2gtk::WebViewExt;
-    let label = w.label().to_string();
-    let _ = w.with_webview(move |pv| {
-        let recent: RefCell<Vec<Instant>> = RefCell::new(Vec::new());
-        pv.inner().connect_web_process_terminated(move |view, reason| {
-            let now = Instant::now();
-            let mut r = recent.borrow_mut();
-            r.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-            if r.len() >= 3 {
-                eprintln!("[nexum] {label}: web process ended ({reason:?}) again; not reloading");
-                return;
-            }
-            r.push(now);
-            eprintln!("[nexum] {label}: web process ended ({reason:?}); reloading");
-            view.reload();
-        });
-    });
-}
-
-#[cfg(not(target_os = "linux"))]
-fn reload_on_crash(_w: &tauri::WebviewWindow) {}
-
 /// A web link the page wants opened outside the app: the system browser, for
 /// http(s) only. Nothing else (file:, custom app schemes) is handed to the OS.
 fn open_outside(app: &AppHandle, url: &url::Url) {
@@ -194,9 +164,8 @@ pub(crate) fn emit_to_site_windows<S: serde::Serialize + Clone>(app: &AppHandle,
 /// address must be this server's (with ?popout=<pane>); the window gets the
 /// same rules as the main one.
 ///
-/// Async on purpose, like every command here that makes a window: on Windows
-/// a window built inside a synchronous command deadlocks (a blank window that
-/// won't respond or close; Tauri docs, wry#583).
+/// Async on purpose: building a window inside a synchronous command can block
+/// the runtime event loop and leave the new window unresponsive.
 #[tauri::command]
 async fn open_popout(app: AppHandle, pane: String, title: String, url: String) -> Result<(), String> {
     if pane.is_empty() || pane.len() > 32 || !pane.chars().all(|c| c.is_ascii_alphabetic()) {
@@ -237,7 +206,6 @@ async fn open_popout(app: AppHandle, pane: String, title: String, url: String) -
         })
         .build()
         .map(|w| {
-            reload_on_crash(&w);
             // However it closes (its X, a crash), give the pane back to the
             // sidebar: the page in it may not get the chance to say so.
             let closed_app = app.clone();
@@ -341,7 +309,7 @@ pub(crate) fn set_start_at_login(app: &AppHandle, on: bool) {
     if STORE {
         return;
     }
-    let launcher = app.autolaunch();
+    let launcher = app.autostart();
     let _ = if on { launcher.enable() } else { launcher.disable() };
     let actual = launcher.is_enabled().unwrap_or(false);
     if actual != on {
@@ -460,11 +428,42 @@ fn linux_env() {
     }
 }
 
+fn should_reload_after_crash(recent: &mut Vec<std::time::Instant>, now: std::time::Instant) -> bool {
+    recent.retain(|time| now.duration_since(*time) < std::time::Duration::from_secs(60));
+    if recent.len() >= 3 {
+        false
+    } else {
+        recent.push(now);
+        true
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
     linux_env();
-    let builder = tauri::Builder::default();
+    let recent_crashes = std::sync::Arc::new(Mutex::new(
+        std::collections::HashMap::<String, Vec<std::time::Instant>>::new(),
+    ));
+    let builder = tauri::Builder::default()
+        .runtime(tauri_runtime_cef::Cef::default())
+        .on_web_content_process_terminate(move |webview, termination| {
+            let label = webview.label().to_string();
+            let now = std::time::Instant::now();
+            let should_reload = {
+                let mut recent = recent_crashes.lock().unwrap();
+                let times = recent.entry(label.clone()).or_default();
+                should_reload_after_crash(times, now)
+            };
+            if should_reload {
+                eprintln!("[nexum] {label}: web process ended ({:?}); reloading", termination.reason);
+                if let Err(error) = webview.reload() {
+                    eprintln!("[nexum] {label}: failed to reload after web process termination: {error}");
+                }
+            } else {
+                eprintln!("[nexum] {label}: web process ended ({:?}) again; not reloading", termination.reason);
+            }
+        });
     let builder = if STORE { builder } else { builder.plugin(tauri_plugin_updater::Builder::new().build()) };
     builder
         // Menu bar and tray items both land here (menus.rs).
@@ -509,7 +508,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let mut s = settings::load(&handle);
             // The pilot may have changed it in the system's own settings since.
-            if let Ok(on) = handle.autolaunch().is_enabled() {
+            if let Ok(on) = handle.autostart().is_enabled() {
                 s.start_at_login = on && !STORE;
             }
             // Started by the system at login: stay in the tray until wanted.
@@ -545,7 +544,7 @@ pub fn run() {
 
             let nav_server = server.clone();
             let nav_app = handle.clone();
-            let main_window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(server.clone()))
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(server.clone()))
                 .title("Nexum")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(900.0, 600.0)
@@ -570,7 +569,6 @@ pub fn run() {
                     }
                 })
                 .build()?;
-            reload_on_crash(&main_window);
             apply(&handle, &s);
 
             // Some Linux desktops have no tray (GNOME without an extension):
@@ -602,7 +600,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed_in_window, percent_decode, safe_file_name};
+    use super::{allowed_in_window, percent_decode, safe_file_name, should_reload_after_crash};
 
     #[test]
     fn save_names() {
@@ -630,5 +628,25 @@ mod tests {
         assert!(!ok("data:text/html,<h1>Log in to Nexum</h1>"));
         assert!(!ok("blob:https://eve-nexum.com/1234"));
         assert!(ok("about:blank"));
+    }
+
+    #[test]
+    fn limits_crash_reloads_per_webview_window() {
+        let start = std::time::Instant::now();
+        let mut recent = Vec::new();
+        for seconds in 0..3 {
+            assert!(should_reload_after_crash(
+                &mut recent,
+                start + std::time::Duration::from_secs(seconds),
+            ));
+        }
+        assert!(!should_reload_after_crash(
+            &mut recent,
+            start + std::time::Duration::from_secs(3),
+        ));
+        assert!(should_reload_after_crash(
+            &mut recent,
+            start + std::time::Duration::from_secs(60),
+        ));
     }
 }
