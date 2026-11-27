@@ -22,6 +22,7 @@ use std::sync::Mutex;
 use tauri::ipc::CapabilityBuilder;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_runtime_cef::cef::{ImplBrowser, ImplBrowserHost};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
@@ -447,6 +448,29 @@ pub fn run() {
     ));
     let builder = tauri::Builder::default()
         .runtime(tauri_runtime_cef::Cef::default())
+        .on_window_event(|window, event| {
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                if let Some(webview_window) = window.app_handle().get_webview_window("main") {
+                    // Mirrors tauri-apps/tauri#16352 for the main onscreen webview.
+                    let _ = webview_window.with_webview(|platform_webview| {
+                        if let Some(webview) =
+                            platform_webview.downcast_ref::<tauri_runtime_cef::Webview>()
+                        {
+                            if let Some(host) = webview.browser().host() {
+                                host.set_focus(1);
+                            }
+                        }
+                    });
+                }
+            }
+        })
         .on_web_content_process_terminate(move |webview, termination| {
             let label = webview.label().to_string();
             let now = std::time::Instant::now();
